@@ -2,7 +2,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const uploadForm = document.getElementById('uploadForm');
     const progressBar = document.getElementById('uploadProgress');
     const progressBarInner = progressBar.querySelector('.progress-bar');
-    const results = document.getElementById('results');
     const errorAlert = document.getElementById('errorAlert');
     const logViewer = document.getElementById('logViewer');
     const fileList = document.getElementById('fileList');
@@ -21,34 +20,32 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             const files = await response.json();
             fileList.innerHTML = '';
-            files.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-                .forEach(file => {
-                    const item = document.createElement('a');
-                    item.className = 'list-group-item';
-                    item.setAttribute('data-filename', file.name);
-                    item.innerHTML = `
-                        <div class="d-flex justify-content-between align-items-center">
-                            <div>
-                                <i data-feather="file-text" class="me-2"></i>
-                                ${file.name}
-                            </div>
-                            <span class="badge ${file.type === 'sanitized' ? 'bg-warning' : 'bg-info'}">
-                                ${file.type}
-                            </span>
+            files.forEach(file => {
+                const item = document.createElement('a');
+                item.className = 'list-group-item';
+                item.setAttribute('data-filename', file.name);
+                item.innerHTML = `
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <i data-feather="file-text" class="me-2"></i>
+                            ${file.name}
                         </div>
-                    `;
-                    item.addEventListener('click', () => {
-                        document.querySelectorAll('.list-group-item').forEach(el => el.classList.remove('active'));
-                        item.classList.add('active');
-                        loadLogContent(file.name);
-                    });
-                    fileList.appendChild(item);
+                        <small class="text-muted">
+                            ${new Date(file.timestamp).toLocaleString()}
+                        </small>
+                    </div>
+                `;
+                item.addEventListener('click', () => {
+                    document.querySelectorAll('.list-group-item').forEach(el => el.classList.remove('active'));
+                    item.classList.add('active');
+                    loadLogContent(file.name);
                 });
+                fileList.appendChild(item);
+            });
             feather.replace();
         } catch (error) {
             console.error('Error loading files:', error);
-            errorAlert.textContent = `Error loading files: ${error.message}`;
-            errorAlert.classList.remove('d-none');
+            showError(`Error loading files: ${error.message}`);
         }
     }
 
@@ -69,34 +66,29 @@ document.addEventListener('DOMContentLoaded', function() {
 
             currentEventSource.onerror = function(error) {
                 console.error('EventSource error:', error);
-                appendSystemMessage('Error streaming log. Reconnecting...');
+                showError('Error streaming log. Please try again.');
                 currentEventSource.close();
             };
         } catch (error) {
             console.error('Error setting up log stream:', error);
-            appendSystemMessage(`Error: ${error.message}`);
+            showError(`Error: ${error.message}`);
         }
     }
 
     // Function to append log entries
     function appendLogEntry(logData) {
         const logLine = document.createElement('div');
-        logLine.className = `log-line ${logData.redacted ? 'redacted' : ''}`;
+        logLine.className = 'log-line';
 
         const timestamp = document.createElement('span');
         timestamp.className = 'log-timestamp';
-        timestamp.textContent = new Date(logData.timestamp).toISOString();
-
-        const level = document.createElement('span');
-        level.className = 'log-level';
-        level.textContent = logData.level;
+        timestamp.textContent = new Date(logData.timestamp).toLocaleString();
 
         const message = document.createElement('span');
         message.className = 'log-message';
         message.textContent = logData.message;
 
         logLine.appendChild(timestamp);
-        logLine.appendChild(level);
         logLine.appendChild(message);
         logViewer.appendChild(logLine);
 
@@ -105,21 +97,12 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Function to append system messages
-    function appendSystemMessage(message) {
-        const systemLine = document.createElement('div');
-        systemLine.className = 'log-line system';
-        systemLine.innerHTML = `<span class="log-timestamp">${new Date().toISOString()}</span> <span class="log-level">SYSTEM</span> ${message}`;
-        logViewer.appendChild(systemLine);
-    }
-
     // Event Listeners
-    clearButton.addEventListener('click', function() {
+    clearButton.addEventListener('click', () => {
         logViewer.innerHTML = '';
-        appendSystemMessage('Logs cleared');
     });
 
-    followButton.addEventListener('click', function() {
+    followButton.addEventListener('click', () => {
         isFollowing = !isFollowing;
         followButton.querySelector('i').setAttribute('data-feather', isFollowing ? 'eye' : 'eye-off');
         feather.replace();
@@ -130,22 +113,18 @@ document.addEventListener('DOMContentLoaded', function() {
 
     refreshButton.addEventListener('click', loadFiles);
 
-    // Initial load
-    loadFiles();
-
-    // Set up periodic refresh
-    setInterval(loadFiles, 30000); // Refresh every 30 seconds
-
+    // File upload handling
     uploadForm.addEventListener('submit', async function(e) {
         e.preventDefault();
         const fileInput = document.getElementById('logFile');
         const file = fileInput.files[0];
+
         if (!file) {
             showError('Please select a file');
             return;
         }
+
         progressBar.classList.remove('d-none');
-        results.classList.add('d-none');
         errorAlert.classList.add('d-none');
         progressBarInner.style.width = '0%';
 
@@ -155,28 +134,21 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             const response = await fetch('/api/logs', {
                 method: 'POST',
-                headers: {
-                    'X-API-Key': 'default-key' // For development, replace with proper key management
-                },
                 body: formData
             });
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+                throw new Error(errorData.error || `Upload failed: ${response.status}`);
             }
 
-            const data = await response.json();
             progressBarInner.style.width = '100%';
-            progressBarInner.setAttribute('aria-valuenow', 100);
-
             setTimeout(() => {
                 progressBar.classList.add('d-none');
                 uploadForm.reset();
             }, 1000);
 
-            // Refresh the file list
-            loadFiles();
+            await loadFiles();
         } catch (error) {
             showError(error.message);
             progressBar.classList.add('d-none');
@@ -187,4 +159,7 @@ document.addEventListener('DOMContentLoaded', function() {
         errorAlert.textContent = message;
         errorAlert.classList.remove('d-none');
     }
+
+    // Initial load
+    loadFiles();
 });
