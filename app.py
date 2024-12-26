@@ -1,7 +1,9 @@
 import os
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, Response
 from werkzeug.utils import secure_filename
 import logging
+import json
+from datetime import datetime
 
 app = Flask(__name__)
 
@@ -28,19 +30,36 @@ def index():
             files.append(filename)
     return render_template('index.html', files=files)
 
-@app.route('/view/<filename>')
-def view_log(filename):
+@app.route('/api/logs/<path:filename>', methods=['GET'])
+def get_log_content(filename):
+    """Stream the content of a specific log file"""
     try:
         filepath = os.path.join(UPLOAD_FOLDER, filename)
         if not os.path.exists(filepath):
-            return "File not found", 404
+            return jsonify({'error': 'File not found'}), 404
 
-        with open(filepath, 'r') as f:
-            content = f.read()
-        return render_template('view.html', filename=filename, content=content)
+        def generate():
+            try:
+                with open(filepath, 'r') as f:
+                    for line in f:
+                        if line.strip():
+                            event_data = {
+                                'timestamp': datetime.now().isoformat(),
+                                'message': line.strip()
+                            }
+                            yield f"data: {json.dumps(event_data)}\n\n"
+            except Exception as stream_error:
+                logger.error(f"Error streaming content: {str(stream_error)}")
+                event_data = {
+                    'timestamp': datetime.now().isoformat(),
+                    'message': f"Error streaming log: {str(stream_error)}"
+                }
+                yield f"data: {json.dumps(event_data)}\n\n"
+
+        return Response(generate(), mimetype='text/event-stream')
     except Exception as e:
-        logger.error(f"Error reading log file: {str(e)}")
-        return f"Error reading file: {str(e)}", 500
+        logger.error(f"Error accessing log: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/logs', methods=['POST'])
 def upload_log():

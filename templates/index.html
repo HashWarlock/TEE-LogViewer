@@ -1,23 +1,50 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="container mt-4">
-    <div class="row">
-        <div class="col-12">
-            <h2>Available Log Files</h2>
-            {% if files %}
-                <div class="list-group">
-                {% for file in files %}
-                    <a href="{{ url_for('view_log', filename=file) }}" class="list-group-item list-group-item-action">
-                        <i data-feather="file-text" class="me-2"></i>
-                        {{ file }}
-                    </a>
-                {% endfor %}
+<div class="row">
+    <div class="col-3">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">Log Files</h5>
+                <button class="btn btn-sm btn-outline-secondary" id="refreshFiles">
+                    <i data-feather="refresh-cw"></i>
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <div class="file-list">
+                    <div class="list-group list-group-flush" id="fileList">
+                        {% for file in files %}
+                            <a href="#" class="list-group-item list-group-item-action" data-filename="{{ file }}">
+                                <i data-feather="file-text" class="me-2"></i>
+                                {{ file }}
+                            </a>
+                        {% endfor %}
+                    </div>
                 </div>
-            {% else %}
-                <p>No log files available.</p>
-            {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-9">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">Log Preview</h5>
+                <div class="btn-group">
+                    <button class="btn btn-outline-secondary btn-sm" id="clearLogs">
+                        <i data-feather="trash-2"></i> Clear
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" id="toggleFollow">
+                        <i data-feather="eye"></i> Follow
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="terminal" id="logViewer">
+                    <!-- Log entries will be inserted here -->
+                </div>
+            </div>
         </div>
     </div>
 </div>
+
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
 {% endblock %}

@@ -35,11 +35,6 @@ document.addEventListener('DOMContentLoaded', function() {
                         </small>
                     </div>
                 `;
-                item.addEventListener('click', () => {
-                    document.querySelectorAll('.list-group-item').forEach(el => el.classList.remove('active'));
-                    item.classList.add('active');
-                    loadLogContent(file.name);
-                });
                 fileList.appendChild(item);
             });
             feather.replace();
@@ -50,7 +45,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Function to load log content
-    async function loadLogContent(filename) {
+    function loadLogContent(filename) {
         logViewer.innerHTML = '';
         if (currentEventSource) {
             currentEventSource.close();
@@ -66,12 +61,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
             currentEventSource.onerror = function(error) {
                 console.error('EventSource error:', error);
-                showError('Error streaming log. Please try again.');
                 currentEventSource.close();
             };
         } catch (error) {
             console.error('Error setting up log stream:', error);
-            showError(`Error: ${error.message}`);
         }
     }
 
@@ -86,7 +79,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const message = document.createElement('span');
         message.className = 'log-message';
-        message.textContent = logData.message;
+        message.textContent = ' ' + logData.message;
 
         logLine.appendChild(timestamp);
         logLine.appendChild(message);
@@ -98,6 +91,16 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Event Listeners
+    fileList.addEventListener('click', function(e) {
+        const item = e.target.closest('.list-group-item');
+        if (item) {
+            e.preventDefault();
+            document.querySelectorAll('.list-group-item').forEach(el => el.classList.remove('active'));
+            item.classList.add('active');
+            loadLogContent(item.dataset.filename);
+        }
+    });
+
     clearButton.addEventListener('click', () => {
         logViewer.innerHTML = '';
     });
@@ -162,4 +165,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Initial load
     loadFiles();
+
+    // Auto-select first log file if available
+    const firstLogFile = fileList.querySelector('.list-group-item');
+    if (firstLogFile) {
+        firstLogFile.classList.add('active');
+        loadLogContent(firstLogFile.dataset.filename);
+    }
 });
