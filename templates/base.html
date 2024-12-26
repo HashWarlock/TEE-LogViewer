@@ -40,18 +40,36 @@
             margin-top: 1rem;
             padding-top: 1rem;
         }
+        .file-list {
+            height: calc(100vh - 200px);
+            overflow-y: auto;
+            border-right: 1px solid var(--bs-border-color);
+        }
+        .file-list .list-group-item {
+            background: transparent;
+            border-right: 0;
+            border-left: 0;
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+        }
+        .file-list .list-group-item:hover {
+            background: var(--bs-dark);
+        }
+        .file-list .list-group-item.active {
+            background: var(--bs-primary);
+        }
     </style>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-        <div class="container">
+        <div class="container-fluid">
             <a class="navbar-brand" href="/">
                 <i data-feather="terminal"></i> Log Viewer
             </a>
         </div>
     </nav>
 
-    <main class="container my-4">
+    <main class="container-fluid my-4">
         {% block content %}{% endblock %}
     </main>
 

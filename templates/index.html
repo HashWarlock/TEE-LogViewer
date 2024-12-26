@@ -2,8 +2,25 @@
 
 {% block content %}
 <div class="row">
-    <div class="col-12">
-        <div class="card">
+    <div class="col-3">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">Log Files</h5>
+                <button class="btn btn-sm btn-outline-secondary" id="refreshFiles">
+                    <i data-feather="refresh-cw"></i>
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <div class="file-list">
+                    <div class="list-group list-group-flush" id="fileList">
+                        <!-- Log files will be listed here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-9">
+        <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="card-title mb-0">
                     <span class="badge bg-success me-2">Connected</span>

@@ -4,29 +4,29 @@ document.addEventListener('DOMContentLoaded', function() {
     const progressBarInner = progressBar.querySelector('.progress-bar');
     const results = document.getElementById('results');
     const errorAlert = document.getElementById('errorAlert');
+    const logViewer = document.getElementById('logViewer');
+    const fileList = document.getElementById('fileList');
+    const clearButton = document.getElementById('clearLogs');
+    const followButton = document.getElementById('toggleFollow');
+    const refreshButton = document.getElementById('refreshFiles');
+    let isFollowing = true;
+    let currentEventSource = null;
 
     uploadForm.addEventListener('submit', async function(e) {
         e.preventDefault();
-        
         const fileInput = document.getElementById('logFile');
         const file = fileInput.files[0];
-        
         if (!file) {
             showError('Please select a file');
             return;
         }
-
-        // Reset UI
         progressBar.classList.remove('d-none');
         results.classList.add('d-none');
         errorAlert.classList.add('d-none');
         progressBarInner.style.width = '0%';
-
         const formData = new FormData();
         formData.append('file', file);
-
         try {
-            // Simulate upload progress
             let progress = 0;
             const progressInterval = setInterval(() => {
                 progress += 5;
@@ -35,37 +35,26 @@ document.addEventListener('DOMContentLoaded', function() {
                     progressBarInner.setAttribute('aria-valuenow', progress);
                 }
             }, 100);
-
             const response = await fetch('/upload', {
                 method: 'POST',
                 body: formData
             });
-
             clearInterval(progressInterval);
             progressBarInner.style.width = '100%';
             progressBarInner.setAttribute('aria-valuenow', 100);
-
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
-
             const data = await response.json();
-            
-            // Show results
             document.getElementById('originalHash').textContent = data.original_hash;
             document.getElementById('sanitizedHash').textContent = data.sanitized_hash;
-            document.getElementById('azureStatus').textContent = 
+            document.getElementById('azureStatus').textContent =
                 data.azure_uploaded ? 'Successfully uploaded' : 'Azure storage not configured';
-            
             results.classList.remove('d-none');
-            
-            // Reset form
             uploadForm.reset();
-
             setTimeout(() => {
                 progressBar.classList.add('d-none');
             }, 1000);
-
         } catch (error) {
             showError(error.message);
             progressBar.classList.add('d-none');
@@ -77,51 +66,67 @@ document.addEventListener('DOMContentLoaded', function() {
         errorAlert.classList.remove('d-none');
     }
 
-    const logViewer = document.getElementById('logViewer');
-    const clearButton = document.getElementById('clearLogs');
-    const followButton = document.getElementById('toggleFollow');
-    let isFollowing = true;
+    async function loadFiles() {
+        try {
+            const response = await fetch('/api/logs');
+            const files = await response.json();
+            fileList.innerHTML = '';
+            files.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                .forEach(file => {
+                    const item = document.createElement('a');
+                    item.className = 'list-group-item';
+                    item.innerHTML = `
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <i data-feather="file-text" class="me-2"></i>
+                                ${file.name}
+                            </div>
+                            <span class="badge ${file.type === 'sanitized' ? 'bg-warning' : 'bg-info'}">
+                                ${file.type}
+                            </span>
+                        </div>
+                    `;
+                    item.addEventListener('click', () => loadLogContent(file.name));
+                    fileList.appendChild(item);
+                });
+            feather.replace();
+        } catch (error) {
+            console.error('Error loading files:', error);
+        }
+    }
 
-    // Connect to log stream
-    function connectLogStream() {
-        const source = new EventSource('/stream');
-
-        source.onmessage = function(event) {
+    async function loadLogContent(filename) {
+        logViewer.innerHTML = '';
+        if (currentEventSource) {
+            currentEventSource.close();
+        }
+        currentEventSource = new EventSource(`/api/logs/${encodeURIComponent(filename)}`);
+        currentEventSource.onmessage = function(event) {
             const logData = JSON.parse(event.data);
             appendLogEntry(logData);
         };
-
-        source.onerror = function() {
-            appendSystemMessage('Connection lost. Reconnecting...');
-            source.close();
-            setTimeout(connectLogStream, 5000);
+        currentEventSource.onerror = function() {
+            appendSystemMessage('Error streaming log. Reconnecting...');
+            currentEventSource.close();
         };
     }
 
     function appendLogEntry(logData) {
         const logLine = document.createElement('div');
         logLine.className = `log-line ${logData.redacted ? 'redacted' : ''}`;
-
-        // Format timestamp
         const timestamp = document.createElement('span');
         timestamp.className = 'log-timestamp';
-        timestamp.textContent = logData.timestamp;
-
-        // Format log level
+        timestamp.textContent = new Date(logData.timestamp).toISOString();
         const level = document.createElement('span');
         level.className = 'log-level';
         level.textContent = logData.level;
-
-        // Format message
         const message = document.createElement('span');
         message.className = 'log-message';
         message.textContent = logData.message;
-
         logLine.appendChild(timestamp);
         logLine.appendChild(level);
         logLine.appendChild(message);
         logViewer.appendChild(logLine);
-
         if (isFollowing) {
             logViewer.scrollTop = logViewer.scrollHeight;
         }
@@ -134,7 +139,6 @@ document.addEventListener('DOMContentLoaded', function() {
         logViewer.appendChild(systemLine);
     }
 
-    // Event handlers
     clearButton.addEventListener('click', function() {
         logViewer.innerHTML = '';
         appendSystemMessage('Logs cleared');
@@ -144,12 +148,11 @@ document.addEventListener('DOMContentLoaded', function() {
         isFollowing = !isFollowing;
         followButton.querySelector('i').setAttribute('data-feather', isFollowing ? 'eye' : 'eye-off');
         feather.replace();
-
         if (isFollowing) {
             logViewer.scrollTop = logViewer.scrollHeight;
         }
     });
 
-    // Initialize
-    connectLogStream();
+    refreshButton.addEventListener('click', loadFiles);
+    loadFiles();
 });

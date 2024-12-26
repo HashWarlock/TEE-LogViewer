@@ -1,10 +1,12 @@
 import os
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, Response
 from werkzeug.utils import secure_filename
 from azure.storage.blob import BlobServiceClient
 import hashlib
 import logging
 import tempfile
+import json
+from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or "default-secret-key"
@@ -19,6 +21,115 @@ ALLOWED_EXTENSIONS = {'log', 'txt'}
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/api/logs', methods=['GET'])
+def list_logs():
+    """List all available log files"""
+    if AZURE_CONNECTION_STRING:
+        try:
+            blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
+            containers = ['logs-original', 'logs-sanitized']
+            logs = []
+
+            for container_name in containers:
+                container_client = blob_service_client.get_container_client(container_name)
+                blobs = container_client.list_blobs()
+                logs.extend([{
+                    'name': blob.name,
+                    'type': 'sanitized' if container_name == 'logs-sanitized' else 'original',
+                    'timestamp': blob.last_modified.isoformat(),
+                    'size': blob.size
+                } for blob in blobs])
+
+            return jsonify(logs)
+        except Exception as e:
+            logger.error(f"Error listing logs: {str(e)}")
+            return jsonify({'error': str(e)}), 500
+    return jsonify([])
+
+@app.route('/api/logs/<path:filename>', methods=['GET'])
+def get_log_content(filename):
+    """Stream the content of a specific log file"""
+    if AZURE_CONNECTION_STRING:
+        try:
+            blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
+            container_name = 'logs-sanitized' if '.sanitized' in filename else 'logs-original'
+            blob_client = blob_service_client.get_container_client(container_name).get_blob_client(filename)
+
+            def generate():
+                download_stream = blob_client.download_blob()
+                for chunk in download_stream.chunks():
+                    for line in chunk.decode().split('\n'):
+                        if line:
+                            yield json.dumps({
+                                'timestamp': datetime.now().isoformat(),
+                                'level': 'INFO',
+                                'message': line.strip(),
+                                'redacted': '.sanitized' in filename
+                            }) + '\n'
+
+            return Response(generate(), mimetype='text/event-stream')
+        except Exception as e:
+            logger.error(f"Error streaming log: {str(e)}")
+            return jsonify({'error': str(e)}), 500
+    return jsonify({'error': 'Azure storage not configured'}), 500
+
+@app.route('/api/logs', methods=['POST'])
+def upload_log():
+    """Upload a new log file"""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+
+    if not file or not allowed_file(file.filename):
+        return jsonify({'error': 'Invalid file type'}), 400
+
+    try:
+        filename = secure_filename(file.filename)
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            file.save(temp_file.name)
+
+            if AZURE_CONNECTION_STRING:
+                blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
+
+                # Upload original
+                container_client = blob_service_client.get_container_client("logs-original")
+                container_client.create_container_if_not_exists()
+                blob_client = container_client.get_blob_client(filename)
+                with open(temp_file.name, "rb") as data:
+                    blob_client.upload_blob(data, overwrite=True)
+
+                # Create and upload sanitized version
+                sanitized_content = ""
+                with open(temp_file.name, 'r') as f:
+                    for line in f:
+                        if any(sensitive in line.lower() for sensitive in ['password', 'token', 'key', 'secret']):
+                            sanitized_content += f"[REDACTED] {hashlib.sha256(line.encode()).hexdigest()}\n"
+                        else:
+                            sanitized_content += line
+
+                container_client = blob_service_client.get_container_client("logs-sanitized")
+                container_client.create_container_if_not_exists()
+                blob_client = container_client.get_blob_client(filename + '.sanitized')
+                blob_client.upload_blob(sanitized_content.encode(), overwrite=True)
+
+            os.unlink(temp_file.name)
+
+            return jsonify({
+                'message': 'File uploaded successfully',
+                'filename': filename
+            })
+
+    except Exception as e:
+        logger.error(f"Error uploading file: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 def calculate_file_hash(file_path):
     """Calculate SHA-256 hash of a file"""
@@ -40,10 +151,6 @@ def sanitize_log_content(content):
         else:
             sanitized_lines.append(line)
     return '\n'.join(sanitized_lines)
-
-@app.route('/')
-def index():
-    return render_template('index.html')
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
