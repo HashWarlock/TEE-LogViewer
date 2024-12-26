@@ -1,4 +1,5 @@
 import os
+from functools import wraps
 from flask import Flask, render_template, request, jsonify, Response
 from werkzeug.utils import secure_filename
 from azure.storage.blob import BlobServiceClient
@@ -19,23 +20,14 @@ logger = logging.getLogger(__name__)
 AZURE_CONNECTION_STRING = os.environ.get('AZURE_BLOB_CONNECTION_STRING')
 ALLOWED_EXTENSIONS = {'log', 'txt'}
 
-DUMMY_LOG_CONTENT = '''Remote Attestation Quote generated successfully!
-ECDSA Key Derived Successfully!
-Cache miss for fetchPrices
-Generating text...
-INFORMATIONS
-Generating text with options: {"modelProvider":"redpill","model":"small"}
-INFORMATIONS
-Selected model: nousresearch/hermes-3-llama-3.1-405b
-Posting new tweet: Just spent 8 hours in the lab cooking up some fresh beats.
-Nothing beats that feeling of getting lost in the creative process and watching a new track come to life...
-Tweet posted: https://twitter.com/1ncipi3nt/status/1872414961731088670
-LOGS
-Creating Memory
-90ee0675-99bc-017f-b810-1f4df68dfb5c
-Next tweet scheduled in 14 minutes
-Checking Twitter interactions
-Finished checking Twitter interactions'''
+def require_api_key(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        api_key = request.headers.get('X-API-Key')
+        if not api_key or api_key != os.environ.get('LOG_VIEWER_API_KEY'):
+            return jsonify({'error': 'Invalid or missing API key'}), 401
+        return f(*args, **kwargs)
+    return decorated_function
 
 def setup_dummy_data():
     """Initialize dummy log data in Azure storage"""
@@ -144,6 +136,7 @@ def get_log_content(filename):
     return jsonify({'error': 'Azure storage not configured'}), 500
 
 @app.route('/api/logs', methods=['POST'])
+@require_api_key
 def upload_log():
     """Upload a new log file"""
     if 'file' not in request.files:
@@ -190,6 +183,24 @@ def upload_log():
         logger.error(f"Error uploading file: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+DUMMY_LOG_CONTENT = '''Remote Attestation Quote generated successfully!
+ECDSA Key Derived Successfully!
+Cache miss for fetchPrices
+Generating text...
+INFORMATIONS
+Generating text with options: {"modelProvider":"redpill","model":"small"}
+INFORMATIONS
+Selected model: nousresearch/hermes-3-llama-3.1-405b
+Posting new tweet: Just spent 8 hours in the lab cooking up some fresh beats.
+Nothing beats that feeling of getting lost in the creative process and watching a new track come to life...
+Tweet posted: https://twitter.com/1ncipi3nt/status/1872414961731088670
+LOGS
+Creating Memory
+90ee0675-99bc-017f-b810-1f4df68dfb5c
+Next tweet scheduled in 14 minutes
+Checking Twitter interactions
+Finished checking Twitter interactions'''
+
 def sanitize_log_content(content):
     """Sanitize log content by redacting sensitive information"""
     lines = content.split('\n')
@@ -211,65 +222,56 @@ def calculate_file_hash(file_path):
     return sha256_hash.hexdigest()
 
 @app.route('/upload', methods=['POST'])
+@require_api_key
 def upload_file():
+    """Legacy upload endpoint with hash calculation"""
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
-    
+
     file = request.files['file']
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
-    
+
     if not file or not allowed_file(file.filename):
         return jsonify({'error': 'Invalid file type'}), 400
-    
+
     try:
-        # Save file temporarily
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
             file.save(temp_file.name)
-            
-            # Calculate original hash
+
             original_hash = calculate_file_hash(temp_file.name)
-            
-            # Read and sanitize content
-            with open(temp_file.name, 'r') as f:
-                content = f.read()
+            content = open(temp_file.name, 'r').read()
             sanitized_content = sanitize_log_content(content)
-            
-            # Save sanitized content
+
             sanitized_path = temp_file.name + '.sanitized'
             with open(sanitized_path, 'w') as f:
                 f.write(sanitized_content)
-            
-            # Calculate sanitized hash
+
             sanitized_hash = calculate_file_hash(sanitized_path)
-            
-            # Upload to Azure if configured
+
             if AZURE_CONNECTION_STRING:
                 blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
-                
-                # Upload original
+
                 container_client = blob_service_client.get_container_client("logs-original")
                 blob_client = container_client.get_blob_client(secure_filename(file.filename))
                 with open(temp_file.name, "rb") as data:
                     blob_client.upload_blob(data, overwrite=True)
-                
-                # Upload sanitized
+
                 container_client = blob_service_client.get_container_client("logs-sanitized")
                 blob_client = container_client.get_blob_client(secure_filename(file.filename) + '.sanitized')
                 with open(sanitized_path, "rb") as data:
                     blob_client.upload_blob(data, overwrite=True)
-            
-            # Cleanup
+
             os.unlink(temp_file.name)
             os.unlink(sanitized_path)
-            
+
             return jsonify({
                 'message': 'File processed successfully',
                 'original_hash': original_hash,
                 'sanitized_hash': sanitized_hash,
                 'azure_uploaded': bool(AZURE_CONNECTION_STRING)
             })
-            
+
     except Exception as e:
         logger.error(f"Error processing file: {str(e)}")
         return jsonify({'error': str(e)}), 500
