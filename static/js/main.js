@@ -76,4 +76,80 @@ document.addEventListener('DOMContentLoaded', function() {
         errorAlert.textContent = message;
         errorAlert.classList.remove('d-none');
     }
+
+    const logViewer = document.getElementById('logViewer');
+    const clearButton = document.getElementById('clearLogs');
+    const followButton = document.getElementById('toggleFollow');
+    let isFollowing = true;
+
+    // Connect to log stream
+    function connectLogStream() {
+        const source = new EventSource('/stream');
+
+        source.onmessage = function(event) {
+            const logData = JSON.parse(event.data);
+            appendLogEntry(logData);
+        };
+
+        source.onerror = function() {
+            appendSystemMessage('Connection lost. Reconnecting...');
+            source.close();
+            setTimeout(connectLogStream, 5000);
+        };
+    }
+
+    function appendLogEntry(logData) {
+        const logLine = document.createElement('div');
+        logLine.className = `log-line ${logData.redacted ? 'redacted' : ''}`;
+
+        // Format timestamp
+        const timestamp = document.createElement('span');
+        timestamp.className = 'log-timestamp';
+        timestamp.textContent = logData.timestamp;
+
+        // Format log level
+        const level = document.createElement('span');
+        level.className = 'log-level';
+        level.textContent = logData.level;
+
+        // Format message
+        const message = document.createElement('span');
+        message.className = 'log-message';
+        message.textContent = logData.message;
+
+        logLine.appendChild(timestamp);
+        logLine.appendChild(level);
+        logLine.appendChild(message);
+        logViewer.appendChild(logLine);
+
+        if (isFollowing) {
+            logViewer.scrollTop = logViewer.scrollHeight;
+        }
+    }
+
+    function appendSystemMessage(message) {
+        const systemLine = document.createElement('div');
+        systemLine.className = 'log-line system';
+        systemLine.textContent = `[SYSTEM] ${message}`;
+        logViewer.appendChild(systemLine);
+    }
+
+    // Event handlers
+    clearButton.addEventListener('click', function() {
+        logViewer.innerHTML = '';
+        appendSystemMessage('Logs cleared');
+    });
+
+    followButton.addEventListener('click', function() {
+        isFollowing = !isFollowing;
+        followButton.querySelector('i').setAttribute('data-feather', isFollowing ? 'eye' : 'eye-off');
+        feather.replace();
+
+        if (isFollowing) {
+            logViewer.scrollTop = logViewer.scrollHeight;
+        }
+    });
+
+    // Initialize
+    connectLogStream();
 });
