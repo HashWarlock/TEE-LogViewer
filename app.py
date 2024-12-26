@@ -1,5 +1,4 @@
 import os
-from functools import wraps
 from flask import Flask, render_template, request, jsonify, Response, send_from_directory
 from werkzeug.utils import secure_filename
 import hashlib
@@ -20,19 +19,6 @@ ALLOWED_EXTENSIONS = {'log', 'txt'}
 
 # Create logs directory if it doesn't exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-def require_api_key(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        api_key = request.headers.get('X-API-Key')
-        if not api_key:
-            logger.warning("API request received without API key")
-            return jsonify({'error': 'Missing API key', 'message': 'Please provide an API key in the X-API-Key header'}), 401
-        if api_key != os.environ.get('LOG_VIEWER_API_KEY'):
-            logger.warning("Invalid API key used in request")
-            return jsonify({'error': 'Invalid API key', 'message': 'The provided API key is not valid'}), 401
-        return f(*args, **kwargs)
-    return decorated_function
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -102,17 +88,21 @@ def get_log_content(filename):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/logs', methods=['POST'])
-@require_api_key
 def upload_log():
     """Upload a new log file"""
+    logger.debug("Received file upload request")
+
     if 'file' not in request.files:
+        logger.warning("No file part in request")
         return jsonify({'error': 'No file part'}), 400
 
     file = request.files['file']
     if file.filename == '':
+        logger.warning("No selected file")
         return jsonify({'error': 'No selected file'}), 400
 
     if not file or not allowed_file(file.filename):
+        logger.warning(f"Invalid file type: {file.filename}")
         return jsonify({'error': 'Invalid file type'}), 400
 
     try:
@@ -120,10 +110,12 @@ def upload_log():
         filepath = os.path.join(UPLOAD_FOLDER, filename)
 
         # Save original file
+        logger.debug(f"Saving original file to: {filepath}")
         file.save(filepath)
         logger.info(f"Saved original file: {filepath}")
 
         # Create sanitized version
+        logger.debug("Creating sanitized version")
         sanitized_content = sanitize_log_content(open(filepath, 'r').read())
         sanitized_filepath = filepath + '.sanitized'
         with open(sanitized_filepath, 'w') as f:
@@ -136,8 +128,9 @@ def upload_log():
         })
 
     except Exception as e:
-        logger.error(f"Error uploading file: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        error_msg = f"Error uploading file: {str(e)}"
+        logger.error(error_msg)
+        return jsonify({'error': error_msg}), 500
 
 def sanitize_log_content(content):
     """Sanitize log content by redacting sensitive information"""

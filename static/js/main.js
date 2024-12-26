@@ -148,38 +148,35 @@ document.addEventListener('DOMContentLoaded', function() {
         results.classList.add('d-none');
         errorAlert.classList.add('d-none');
         progressBarInner.style.width = '0%';
+
         const formData = new FormData();
         formData.append('file', file);
+
         try {
-            let progress = 0;
-            const progressInterval = setInterval(() => {
-                progress += 5;
-                if (progress <= 90) {
-                    progressBarInner.style.width = `${progress}%`;
-                    progressBarInner.setAttribute('aria-valuenow', progress);
-                }
-            }, 100);
-            const response = await fetch('/upload', {
+            const response = await fetch('/api/logs', {
                 method: 'POST',
+                headers: {
+                    'X-API-Key': 'default-key' // For development, replace with proper key management
+                },
                 body: formData
             });
-            clearInterval(progressInterval);
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
             progressBarInner.style.width = '100%';
             progressBarInner.setAttribute('aria-valuenow', 100);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            const data = await response.json();
-            document.getElementById('originalHash').textContent = data.original_hash;
-            document.getElementById('sanitizedHash').textContent = data.sanitized_hash;
-            document.getElementById('azureStatus').textContent =
-                data.azure_uploaded ? 'Successfully uploaded' : 'Azure storage not configured';
-            results.classList.remove('d-none');
-            uploadForm.reset();
+
             setTimeout(() => {
                 progressBar.classList.add('d-none');
+                uploadForm.reset();
             }, 1000);
-            loadFiles(); // Refresh file list after upload
+
+            // Refresh the file list
+            loadFiles();
         } catch (error) {
             showError(error.message);
             progressBar.classList.add('d-none');
