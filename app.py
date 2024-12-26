@@ -33,71 +33,44 @@ def require_api_key(f):
         return f(*args, **kwargs)
     return decorated_function
 
-def setup_dummy_data():
-    """Initialize dummy log data in Azure storage"""
-    if AZURE_CONNECTION_STRING:
-        try:
-            blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
-
-            # Create containers if they don't exist
-            for container_name in ['logs-original', 'logs-sanitized']:
-                container_client = blob_service_client.get_container_client(container_name)
-                container_client.create_container_if_not_exists()
-
-                # Upload dummy log content
-                blob_name = 'example_log.log'
-                if container_name == 'logs-original':
-                    content = DUMMY_LOG_CONTENT
-                else:
-                    content = sanitize_log_content(DUMMY_LOG_CONTENT)
-
-                blob_client = container_client.get_blob_client(blob_name)
-                try:
-                    blob_client.upload_blob(content.encode(), overwrite=True)
-                    logger.info(f"Uploaded dummy data to {container_name}/{blob_name}")
-                except Exception as upload_error:
-                    logger.error(f"Error uploading to {container_name}: {str(upload_error)}")
-
-            logger.info("Dummy log data initialized")
-        except Exception as e:
-            logger.error(f"Error setting up dummy data: {str(e)}")
-
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 @app.route('/')
 def index():
-    setup_dummy_data()  # Initialize dummy data when accessing the index
     return render_template('index.html')
 
 @app.route('/api/logs', methods=['GET'])
 def list_logs():
     """List all available log files"""
-    if AZURE_CONNECTION_STRING:
-        try:
-            blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
-            containers = ['logs-original', 'logs-sanitized']
-            logs = []
+    if not AZURE_CONNECTION_STRING:
+        return jsonify([])
 
-            for container_name in containers:
+    try:
+        blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
+        containers = ['logs-original', 'logs-sanitized']
+        logs = []
+
+        for container_name in containers:
+            try:
                 container_client = blob_service_client.get_container_client(container_name)
-                try:
-                    container_client.create_container_if_not_exists()
-                    blobs = container_client.list_blobs()
-                    logs.extend([{
-                        'name': blob.name,
-                        'type': 'sanitized' if container_name == 'logs-sanitized' else 'original',
-                        'timestamp': blob.last_modified.isoformat() if hasattr(blob, 'last_modified') else datetime.now().isoformat(),
-                        'size': blob.size if hasattr(blob, 'size') else 0
-                    } for blob in blobs])
-                except Exception as container_error:
-                    logger.error(f"Error accessing container {container_name}: {str(container_error)}")
+                container_client.create_container_if_not_exists()
 
-            return jsonify(logs)
-        except Exception as e:
-            logger.error(f"Error listing logs: {str(e)}")
-            return jsonify({'error': str(e)}), 500
-    return jsonify([])
+                blobs = container_client.list_blobs()
+                logs.extend([{
+                    'name': blob.name,
+                    'type': 'sanitized' if container_name == 'logs-sanitized' else 'original',
+                    'timestamp': blob.last_modified.isoformat() if hasattr(blob, 'last_modified') else datetime.now().isoformat(),
+                    'size': blob.size if hasattr(blob, 'size') else 0
+                } for blob in blobs])
+            except Exception as container_error:
+                logger.error(f"Error accessing container {container_name}: {str(container_error)}")
+                continue
+
+        return jsonify(sorted(logs, key=lambda x: x['timestamp'], reverse=True))
+    except Exception as e:
+        logger.error(f"Error listing logs: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/logs/<path:filename>', methods=['GET'])
 def get_log_content(filename):
@@ -186,24 +159,6 @@ def upload_log():
     except Exception as e:
         logger.error(f"Error uploading file: {str(e)}")
         return jsonify({'error': str(e)}), 500
-
-DUMMY_LOG_CONTENT = '''Remote Attestation Quote generated successfully!
-ECDSA Key Derived Successfully!
-Cache miss for fetchPrices
-Generating text...
-INFORMATIONS
-Generating text with options: {"modelProvider":"redpill","model":"small"}
-INFORMATIONS
-Selected model: nousresearch/hermes-3-llama-3.1-405b
-Posting new tweet: Just spent 8 hours in the lab cooking up some fresh beats.
-Nothing beats that feeling of getting lost in the creative process and watching a new track come to life...
-Tweet posted: https://twitter.com/1ncipi3nt/status/1872414961731088670
-LOGS
-Creating Memory
-90ee0675-99bc-017f-b810-1f4df68dfb5c
-Next tweet scheduled in 14 minutes
-Checking Twitter interactions
-Finished checking Twitter interactions'''
 
 def sanitize_log_content(content):
     """Sanitize log content by redacting sensitive information"""
