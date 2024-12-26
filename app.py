@@ -41,13 +41,27 @@ def get_log_content(filename):
         def generate():
             try:
                 with open(filepath, 'r') as f:
-                    for line in f:
+                    # First read existing content
+                    content = f.read()
+                    for line in content.splitlines():
                         if line.strip():
                             event_data = {
                                 'timestamp': datetime.now().isoformat(),
                                 'message': line.strip()
                             }
                             yield f"data: {json.dumps(event_data)}\n\n"
+
+                    # Then seek to end and wait for new content
+                    f.seek(0, 2)  # Seek to end
+                    while True:
+                        line = f.readline()
+                        if line:
+                            if line.strip():
+                                event_data = {
+                                    'timestamp': datetime.now().isoformat(),
+                                    'message': line.strip()
+                                }
+                                yield f"data: {json.dumps(event_data)}\n\n"
             except Exception as stream_error:
                 logger.error(f"Error streaming content: {str(stream_error)}")
                 event_data = {

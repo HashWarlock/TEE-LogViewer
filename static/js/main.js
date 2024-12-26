@@ -1,8 +1,4 @@
 document.addEventListener('DOMContentLoaded', function() {
-    const uploadForm = document.getElementById('uploadForm');
-    const progressBar = document.getElementById('uploadProgress');
-    const progressBarInner = progressBar.querySelector('.progress-bar');
-    const errorAlert = document.getElementById('errorAlert');
     const logViewer = document.getElementById('logViewer');
     const fileList = document.getElementById('fileList');
     const clearButton = document.getElementById('clearLogs');
@@ -14,38 +10,28 @@ document.addEventListener('DOMContentLoaded', function() {
     // Function to load and display files
     async function loadFiles() {
         try {
-            const response = await fetch('/api/logs');
+            const response = await fetch('/');
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
-            const files = await response.json();
-            fileList.innerHTML = '';
-            files.forEach(file => {
-                const item = document.createElement('a');
-                item.className = 'list-group-item';
-                item.setAttribute('data-filename', file.name);
-                item.innerHTML = `
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <i data-feather="file-text" class="me-2"></i>
-                            ${file.name}
-                        </div>
-                        <small class="text-muted">
-                            ${new Date(file.timestamp).toLocaleString()}
-                        </small>
-                    </div>
-                `;
-                fileList.appendChild(item);
-            });
-            feather.replace();
+            const text = await response.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(text, 'text/html');
+            const newFileList = doc.getElementById('fileList');
+
+            if (newFileList) {
+                fileList.innerHTML = newFileList.innerHTML;
+                feather.replace();
+            }
         } catch (error) {
             console.error('Error loading files:', error);
-            showError(`Error loading files: ${error.message}`);
         }
     }
 
     // Function to load log content
     function loadLogContent(filename) {
+        if (!filename) return;
+
         logViewer.innerHTML = '';
         if (currentEventSource) {
             currentEventSource.close();
@@ -92,12 +78,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Event Listeners
     fileList.addEventListener('click', function(e) {
+        e.preventDefault();
         const item = e.target.closest('.list-group-item');
         if (item) {
-            e.preventDefault();
-            document.querySelectorAll('.list-group-item').forEach(el => el.classList.remove('active'));
-            item.classList.add('active');
-            loadLogContent(item.dataset.filename);
+            const filename = item.dataset.filename;
+            if (filename) {
+                document.querySelectorAll('.list-group-item').forEach(el => el.classList.remove('active'));
+                item.classList.add('active');
+                loadLogContent(filename);
+            }
         }
     });
 
@@ -116,60 +105,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
     refreshButton.addEventListener('click', loadFiles);
 
-    // File upload handling
-    uploadForm.addEventListener('submit', async function(e) {
-        e.preventDefault();
-        const fileInput = document.getElementById('logFile');
-        const file = fileInput.files[0];
-
-        if (!file) {
-            showError('Please select a file');
-            return;
-        }
-
-        progressBar.classList.remove('d-none');
-        errorAlert.classList.add('d-none');
-        progressBarInner.style.width = '0%';
-
-        const formData = new FormData();
-        formData.append('file', file);
-
-        try {
-            const response = await fetch('/api/logs', {
-                method: 'POST',
-                body: formData
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || `Upload failed: ${response.status}`);
-            }
-
-            progressBarInner.style.width = '100%';
-            setTimeout(() => {
-                progressBar.classList.add('d-none');
-                uploadForm.reset();
-            }, 1000);
-
-            await loadFiles();
-        } catch (error) {
-            showError(error.message);
-            progressBar.classList.add('d-none');
-        }
-    });
-
-    function showError(message) {
-        errorAlert.textContent = message;
-        errorAlert.classList.remove('d-none');
-    }
+    // Set up periodic refresh for file list
+    setInterval(loadFiles, 5000);  // Refresh every 5 seconds
 
     // Initial load
-    loadFiles();
-
-    // Auto-select first log file if available
-    const firstLogFile = fileList.querySelector('.list-group-item');
-    if (firstLogFile) {
-        firstLogFile.classList.add('active');
-        loadLogContent(firstLogFile.dataset.filename);
-    }
+    loadFiles().then(() => {
+        // Auto-select first log file if available
+        const firstLogFile = fileList.querySelector('.list-group-item');
+        if (firstLogFile) {
+            firstLogFile.classList.add('active');
+            const filename = firstLogFile.dataset.filename;
+            if (filename) {
+                loadLogContent(filename);
+            }
+        }
+    });
 });
