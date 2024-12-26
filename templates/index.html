@@ -4,15 +4,7 @@
 <div class="container mt-4">
     <div class="row">
         <div class="col-12">
-            <h2>Upload Log File</h2>
-            <form action="/upload" method="post" enctype="multipart/form-data" class="mb-4">
-                <div class="input-group">
-                    <input type="file" class="form-control" name="file" accept=".log,.txt">
-                    <button class="btn btn-primary" type="submit">Upload</button>
-                </div>
-            </form>
-
-            <h2>Available Logs</h2>
+            <h2>Available Log Files</h2>
             {% if files %}
                 <div class="list-group">
                 {% for file in files %}
