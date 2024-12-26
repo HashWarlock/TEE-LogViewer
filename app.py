@@ -1,12 +1,9 @@
 import os
-from flask import Flask, render_template, request, jsonify, Response
+from flask import Flask, render_template, request, jsonify
 from werkzeug.utils import secure_filename
 import logging
-import json
-from datetime import datetime
 
 app = Flask(__name__)
-app.secret_key = "development-key"
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -24,90 +21,44 @@ def allowed_file(filename):
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    # Get list of log files
+    files = []
+    for filename in os.listdir(UPLOAD_FOLDER):
+        if os.path.isfile(os.path.join(UPLOAD_FOLDER, filename)):
+            files.append(filename)
+    return render_template('index.html', files=files)
 
-@app.route('/api/logs', methods=['GET'])
-def list_logs():
-    """List all available log files"""
-    try:
-        files = []
-        for filename in os.listdir(UPLOAD_FOLDER):
-            filepath = os.path.join(UPLOAD_FOLDER, filename)
-            if os.path.isfile(filepath):
-                file_stats = os.stat(filepath)
-                files.append({
-                    'name': filename,
-                    'type': 'log',
-                    'timestamp': datetime.fromtimestamp(file_stats.st_mtime).isoformat(),
-                    'size': file_stats.st_size
-                })
-
-        sorted_files = sorted(files, key=lambda x: x['timestamp'], reverse=True)
-        return jsonify(sorted_files)
-    except Exception as e:
-        logger.error(f"Error listing logs: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/logs/<path:filename>', methods=['GET'])
-def get_log_content(filename):
-    """Stream the content of a specific log file"""
+@app.route('/view/<filename>')
+def view_log(filename):
     try:
         filepath = os.path.join(UPLOAD_FOLDER, filename)
         if not os.path.exists(filepath):
-            return jsonify({'error': 'File not found'}), 404
+            return "File not found", 404
 
-        def generate():
-            try:
-                with open(filepath, 'r') as f:
-                    for line in f:
-                        if line.strip():
-                            event_data = {
-                                'timestamp': datetime.now().isoformat(),
-                                'level': 'INFO',
-                                'message': line.strip()
-                            }
-                            yield f"data: {json.dumps(event_data)}\n\n"
-            except Exception as stream_error:
-                logger.error(f"Error streaming content: {str(stream_error)}")
-                event_data = {
-                    'timestamp': datetime.now().isoformat(),
-                    'level': 'ERROR',
-                    'message': f"Error streaming log: {str(stream_error)}"
-                }
-                yield f"data: {json.dumps(event_data)}\n\n"
-
-        return Response(generate(), mimetype='text/event-stream')
+        with open(filepath, 'r') as f:
+            content = f.read()
+        return render_template('view.html', filename=filename, content=content)
     except Exception as e:
-        logger.error(f"Error accessing log: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Error reading log file: {str(e)}")
+        return f"Error reading file: {str(e)}", 500
 
-@app.route('/api/logs', methods=['POST'])
-def upload_log():
-    """Upload a new log file"""
+@app.route('/upload', methods=['POST'])
+def upload_file():
     if 'file' not in request.files:
-        return jsonify({'error': 'No file part'}), 400
+        return "No file part", 400
 
     file = request.files['file']
     if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
+        return "No selected file", 400
 
-    if not file or not allowed_file(file.filename):
-        return jsonify({'error': 'Invalid file type'}), 400
-
-    try:
+    if file and allowed_file(file.filename):
         filename = secure_filename(file.filename)
         filepath = os.path.join(UPLOAD_FOLDER, filename)
         file.save(filepath)
-        logger.info(f"Saved file: {filepath}")
+        logger.info(f"File uploaded: {filename}")
+        return index()
 
-        return jsonify({
-            'message': 'File uploaded successfully',
-            'filename': filename
-        })
-
-    except Exception as e:
-        logger.error(f"Error uploading file: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+    return "Invalid file type", 400
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=5000, debug=True)
