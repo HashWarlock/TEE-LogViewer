@@ -24,8 +24,12 @@ def require_api_key(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         api_key = request.headers.get('X-API-Key')
-        if not api_key or api_key != os.environ.get('LOG_VIEWER_API_KEY'):
-            return jsonify({'error': 'Invalid or missing API key'}), 401
+        if not api_key:
+            logger.warning("API request received without API key")
+            return jsonify({'error': 'Missing API key', 'message': 'Please provide an API key in the X-API-Key header'}), 401
+        if api_key != os.environ.get('LOG_VIEWER_API_KEY'):
+            logger.warning("Invalid API key used in request")
+            return jsonify({'error': 'Invalid API key', 'message': 'The provided API key is not valid'}), 401
         return f(*args, **kwargs)
     return decorated_function
 
